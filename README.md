@@ -12,6 +12,11 @@ OMRON MCP is a Go-based [Model Context Protocol (MCP)](https://modelcontextproto
 
 The objective is to make AI a capable engineering partner rather than a separate chatbot. Instead of working from isolated code fragments, the AI can operate with the context of the actual Sysmac project: its programs, entities, variables, metadata, and build results.
 
+**To get started:**
+Download the executable here (under releases, as product of the continuous buildloop):
+[Releases/continous](https://github.com/rjboer/OMRON-MCP/releases/tag/continuous)
+
+
 > [!IMPORTANT]
 > OMRON MCP requires a valid OMRON Sysmac Studio license.
 
