@@ -1,11 +1,12 @@
 param(
     [Parameter(Mandatory=$true)][string]$ProjectDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('NJ5','NX1','NX5','NX7','NY5')][string]$Target = 'NX5'
+    [ValidateSet('NJ5','NX1','NX5','NX7','NY5')][string]$Target = 'NX5',
+    [string]$InstallDirectory = 'C:\Program Files\OMRON\Sysmac Studio'
 )
 
 $ErrorActionPreference = 'Stop'
-$install = 'C:\Program Files\OMRON\Sysmac Studio'
+$install = $InstallDirectory
 $builderDir = Join-Path $install 'builder2'
 $interfaceDll = Join-Path $install 'Modules\Nex\INexBuilder2.dll'
 $builderDll = Join-Path $builderDir 'NexBuilder2.dll'

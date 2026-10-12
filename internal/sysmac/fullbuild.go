@@ -38,11 +38,15 @@ type ProjectBuildResult struct {
 	Dependencies     []SysmacDependencies     `json:"dependencies,omitempty"`
 	GeneratedInputs  []string                 `json:"generated_inputs,omitempty"`
 	HostMessage      string                   `json:"host_message,omitempty"`
+	StudioPath       string                   `json:"studio_path,omitempty"`
+	InputsStale      bool                     `json:"inputs_stale"`
+	StaleWarning     string                   `json:"stale_warning,omitempty"`
 	BuilderResults   []HeadlessBuilderResult  `json:"builder_results,omitempty"`
 }
 
 type ProjectBuildOptions struct {
-	Timeout time.Duration
+	Timeout    time.Duration
+	StudioPath string
 }
 
 type HeadlessBuilderMessage struct {
@@ -94,7 +98,16 @@ func BuildProject(ctx context.Context, projectPath string, options ProjectBuildO
 		result.FinishedAt = time.Now()
 		return result, nil
 	}
-	output, err := runHeadlessNexBuilder(ctx, script, inputDirectory, outputDir)
+	studio := ResolveStudioInstall(options.StudioPath)
+	if studio == "" {
+		result.Status = "headless_builder_failed"
+		result.HostMessage = "Sysmac Studio installation not found; pass studio_path or set " + StudioInstallEnv
+		result.FinishedAt = time.Now()
+		return result, nil
+	}
+	result.StudioPath = studio
+	result.InputsStale, result.StaleWarning = checkInputsStale(root, inputDirectory)
+	output, err := runHeadlessNexBuilder(ctx, script, inputDirectory, outputDir, studio)
 	if err != nil {
 		result.Status = "headless_builder_failed"
 		result.HostMessage = err.Error()
@@ -176,9 +189,9 @@ func discoverProjectRoot(path string) (string, string, error) {
 	return "", "", fmt.Errorf("no Sysmac .manifest found at or above %q", path)
 }
 
-func runHeadlessNexBuilder(ctx context.Context, script, root, output string) (headlessBuilderOutput, error) {
+func runHeadlessNexBuilder(ctx context.Context, script, root, output, studio string) (headlessBuilderOutput, error) {
 	var result headlessBuilderOutput
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProjectDirectory", root, "-OutputDirectory", output, "-Target", "NX5")
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProjectDirectory", root, "-OutputDirectory", output, "-Target", "NX5", "-InstallDirectory", studio)
 	data, err := cmd.CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(data))
@@ -284,4 +297,35 @@ func collectBuildDiagnostics(node buildXMLNode, result *[]ProjectBuildDiagnostic
 	for _, child := range node.Nodes {
 		collectBuildDiagnostics(child, result)
 	}
+}
+
+// checkInputsStale compares the newest .cxil2 compiler input with the newest
+// project source (.oem index and entity payloads). Sysmac Studio regenerates
+// .cxil2 files only when it builds, and only for some POUs, so a headless build
+// of older inputs does not reflect source written afterwards.
+func checkInputsStale(root, inputDirectory string) (bool, string) {
+	var newestInput time.Time
+	inputs, _ := filepath.Glob(filepath.Join(inputDirectory, "*.cxil2"))
+	for _, input := range inputs {
+		if modified := fileModTime(input); modified.After(newestInput) {
+			newestInput = modified
+		}
+	}
+	var newestSource time.Time
+	var newestName string
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		name := strings.ToLower(entry.Name())
+		if entry.IsDir() || !(strings.HasSuffix(name, ".oem") || strings.HasSuffix(name, ".xml")) {
+			continue
+		}
+		if modified := fileModTime(filepath.Join(root, entry.Name())); modified.After(newestSource) {
+			newestSource, newestName = modified, entry.Name()
+		}
+	}
+	if newestInput.IsZero() || newestSource.After(newestInput) {
+		return true, fmt.Sprintf("compiler inputs (%d .cxil2, newest %s) are older than project source %s (%s); this build does NOT reflect current source - build in Sysmac Studio for real results",
+			len(inputs), newestInput.Format(time.RFC3339), newestName, newestSource.Format(time.RFC3339))
+	}
+	return false, ""
 }

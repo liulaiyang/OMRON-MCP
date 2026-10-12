@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,15 +126,10 @@ func parseNexCCDiagnostics(input, output string) []NexCCDiagnostic {
 }
 
 func defaultNexCCPath() string {
-	if runtime.GOOS == "windows" {
-		candidates := []string{
-			`C:\Program Files\OMRON\Sysmac Studio\builder2\nexcc.exe`,
-			`C:\Program Files (x86)\OMRON\Sysmac Studio\builder2\nexcc.exe`,
-		}
-		for _, candidate := range candidates {
-			if _, err := os.Stat(candidate); err == nil {
-				return candidate
-			}
+	if root := ResolveStudioInstall(""); root != "" {
+		candidate := filepath.Join(root, "builder2", "nexcc.exe")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
 		}
 	}
 	return "nexcc.exe"

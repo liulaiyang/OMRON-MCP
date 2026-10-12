@@ -93,9 +93,13 @@ func defaultSysmacRoots() []string {
 	if runtime.GOOS != "windows" {
 		return nil
 	}
-	return []string{
+	roots := []string{
 		`C:\Program Files\OMRON`,
 		`C:\Program Files (x86)\OMRON`,
 		`C:\OMRON`,
 	}
+	if root := ResolveStudioInstall(""); root != "" {
+		roots = append(roots, root)
+	}
+	return roots
 }

@@ -13,7 +13,7 @@ import (
 func sysmacBuildTools() []tool {
 	return []tool{
 		{Name: "sysmac_nexcc_build", Description: "Run Omron nexcc.exe for prepared .cxif2 build inputs and return compiler diagnostics. This does not prepare .cxil2 files or perform a full controller build.", InputSchema: objectSchema(map[string]any{"build_directory": stringProperty("Directory containing prepared .cxif2 inputs"), "executable": stringProperty("Optional nexcc.exe path")}, "build_directory")},
-		{Name: "sysmac_project_build", Description: "Trigger the complete regular Sysmac Studio controller build for a solution/project and return persisted build diagnostics. This uses Sysmac Studio's hosted build service; it does not bypass password prompts.", InputSchema: objectSchema(map[string]any{"project_path": stringProperty("Sysmac solution directory, project directory, or .manifest path"), "timeout_seconds": map[string]any{"type": "integer", "description": "Maximum seconds to wait for NexBuildResults/ValidationResults (default 120)"}}, "project_path")},
+		{Name: "sysmac_project_build", Description: "Trigger the complete regular Sysmac Studio controller build for a solution/project and return persisted build diagnostics. This uses Sysmac Studio's hosted build service; it does not bypass password prompts.", InputSchema: objectSchema(map[string]any{"project_path": stringProperty("Sysmac solution directory, project directory, or .manifest path"), "timeout_seconds": map[string]any{"type": "integer", "description": "Maximum seconds to wait for NexBuildResults/ValidationResults (default 120)"}, "studio_path": stringProperty("Optional Sysmac Studio install directory (folder with SysmacStudio.exe); default: $OMRON_SYSMAC_STUDIO or auto-detect")}, "project_path")},
 		{Name: "sysmac_project_snapshot", Description: "Copy a native Sysmac Solution to a Git-managed workspace. Requires explicit confirmation.", InputSchema: objectSchema(map[string]any{"source_path": stringProperty("Source Sysmac Solution directory"), "destination_path": stringProperty("New Git workspace destination directory"), "confirm_snapshot": map[string]any{"type": "boolean", "description": "Must be true to create the snapshot"}}, "source_path", "destination_path", "confirm_snapshot")},
 	}
 }
@@ -55,7 +55,11 @@ func handleProjectBuild(call sysmacToolCall) (map[string]any, error) {
 		}
 		timeout = time.Duration(seconds) * time.Second
 	}
-	result, err := sysmac.BuildProject(call.context, projectPath, sysmac.ProjectBuildOptions{Timeout: timeout})
+	studioPath, err := call.string("studio_path", false)
+	if err != nil {
+		return nil, err
+	}
+	result, err := sysmac.BuildProject(call.context, projectPath, sysmac.ProjectBuildOptions{Timeout: timeout, StudioPath: studioPath})
 	if err != nil {
 		return nil, err
 	}
