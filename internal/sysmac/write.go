@@ -2,6 +2,7 @@ package sysmac
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -64,16 +65,6 @@ func WriteEntityPayloadAtomic(projectRoot, entityID string, data []byte, protect
 	if err != nil {
 		return "", err
 	}
-	decoder := xml.NewDecoder(bytes.NewReader(data))
-	for {
-		_, decodeErr := decoder.Token()
-		if decodeErr == io.EOF {
-			break
-		}
-		if decodeErr != nil {
-			return "", errors.New("entity payload is not valid XML")
-		}
-	}
 	resolved, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
@@ -88,6 +79,10 @@ func WriteEntityPayloadAtomic(projectRoot, entityID string, data []byte, protect
 		}
 	}
 	original, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", err
+	}
+	data, err = prepareEntityPayload(original, data)
 	if err != nil {
 		return "", err
 	}
@@ -226,4 +221,64 @@ func isWithin(root, path string) bool {
 	root = strings.TrimRight(filepath.Clean(root), string(filepath.Separator)) + string(filepath.Separator)
 	path = strings.TrimRight(filepath.Clean(path), string(filepath.Separator)) + string(filepath.Separator)
 	return strings.HasPrefix(strings.ToLower(path), strings.ToLower(root))
+}
+
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// ladderJSONLineEnd is the exact terminator Sysmac Studio requires for JSON
+// ladder bodies. LadderBodyPersister.GetFileFormat (NexProgramming.dll) only
+// treats a body as JSON when the file ends with "}\r\n"; anything else falls
+// back to the legacy parser, which fails and shows an empty ladder rung. This
+// affects every FakeMultiSectionST ("multi-section ST") section.
+var ladderJSONLineEnd = []byte("\r\n")
+
+// isJSONPayload reports whether the payload (ignoring a UTF-8 BOM and leading
+// whitespace) is a JSON document rather than XML.
+func isJSONPayload(data []byte) bool {
+	body := bytes.TrimLeft(bytes.TrimPrefix(data, utf8BOM), " \t\r\n")
+	return bytes.HasPrefix(body, []byte("{"))
+}
+
+// prepareEntityPayload validates a replacement payload against the kind of
+// payload currently on disk and normalizes JSON ladder bodies so Sysmac Studio
+// can read them back.
+func prepareEntityPayload(original, data []byte) ([]byte, error) {
+	if !isJSONPayload(data) {
+		if isJSONPayload(original) {
+			return nil, errors.New("entity payload on disk is a JSON ladder body; replacement must be JSON too")
+		}
+		return data, validateXMLPayload(data)
+	}
+	return normalizeLadderJSONPayload(original, data)
+}
+
+func validateXMLPayload(data []byte) error {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		_, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return errors.New("entity payload is not valid XML")
+		}
+	}
+}
+
+// normalizeLadderJSONPayload trims surrounding whitespace, validates the JSON,
+// terminates it with CRLF and keeps the UTF-8 BOM when the file on disk (or the
+// caller) had one.
+func normalizeLadderJSONPayload(original, data []byte) ([]byte, error) {
+	keepBOM := bytes.HasPrefix(original, utf8BOM) || bytes.HasPrefix(data, utf8BOM)
+	body := bytes.TrimSpace(bytes.TrimPrefix(data, utf8BOM))
+	if !json.Valid(body) {
+		return nil, errors.New("entity payload is not valid JSON")
+	}
+	out := make([]byte, 0, len(utf8BOM)+len(body)+len(ladderJSONLineEnd))
+	if keepBOM {
+		out = append(out, utf8BOM...)
+	}
+	out = append(out, body...)
+	out = append(out, ladderJSONLineEnd...)
+	return out, nil
 }
