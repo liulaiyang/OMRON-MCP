@@ -57,6 +57,35 @@ type ClonedSection struct {
 
 var uuidPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 
+// compactUUIDPattern matches a UUID written without dashes (Sysmac uses this
+// form for build artefact names such as "FB_<trackingId>").
+var compactUUIDPattern = regexp.MustCompile(`[0-9a-fA-F]{32}`)
+
+// remapIDs replaces every mapped UUID in data, both in dashed form and in the
+// 32-hex-digit compact form, keeping the letter case of the compact form.
+func remapIDs(data []byte, idMap map[string]string) []byte {
+	data = uuidPattern.ReplaceAllFunc(data, func(match []byte) []byte {
+		if replacement, ok := idMap[strings.ToLower(string(match))]; ok {
+			return []byte(replacement)
+		}
+		return match
+	})
+	compact := make(map[string]string, len(idMap))
+	for old, replacement := range idMap {
+		compact[strings.ReplaceAll(old, "-", "")] = strings.ReplaceAll(replacement, "-", "")
+	}
+	return compactUUIDPattern.ReplaceAllFunc(data, func(match []byte) []byte {
+		replacement, ok := compact[strings.ToLower(string(match))]
+		if !ok {
+			return match
+		}
+		if bytes.ToUpper(match)[0] == match[0] && bytes.Equal(match, bytes.ToUpper(match)) {
+			return []byte(strings.ToUpper(replacement))
+		}
+		return []byte(replacement)
+	})
+}
+
 const sysmacDateLayout = "01/02/2006 15:04:05"
 
 type byteSpan struct{ start, end int }
@@ -342,14 +371,7 @@ func CloneProgram(request ProgramCloneRequest) (*ProgramCloneResult, error) {
 			mapID(entity.name)
 		}
 	}
-	remap := func(data []byte) []byte {
-		return uuidPattern.ReplaceAllFunc(data, func(match []byte) []byte {
-			if replacement, ok := idMap[strings.ToLower(string(match))]; ok {
-				return []byte(replacement)
-			}
-			return match
-		})
-	}
+	remap := func(data []byte) []byte { return remapIDs(data, idMap) }
 	fragment = remap(fragment)
 	fragment = replaceAttrInStartTag(fragment, "name", request.NewName)
 	if bytes.Contains(fragment[:bytes.IndexByte(fragment, '>')], []byte(` DN="`)) {

@@ -10,6 +10,7 @@ func sysmacEntityTools() []tool {
 	return []tool{
 		{Name: "sysmac_entity_mutate", Description: "Create, rename, move, clone, or delete an OEM entity. Requires explicit confirmation.", InputSchema: objectSchema(map[string]any{"oem_path": stringProperty("Native .oem index path"), "operation": stringProperty("create, rename, move, clone, or delete"), "entity_id": stringProperty("Entity ID"), "parent_id": stringProperty("Parent entity ID for create, move, or clone"), "name": stringProperty("Entity name"), "type": stringProperty("Entity type for create"), "subtype": stringProperty("Entity subtype for create"), "confirm_direct_write": map[string]any{"type": "boolean", "description": "Must be true to mutate project files"}, "protected_root": stringProperty("Optional root that must not be written")}, "oem_path", "operation", "entity_id", "confirm_direct_write")},
 		{Name: "sysmac_program_clone", Description: "Deep-clone a program (e.g. a multi-section ST program) inside a native Solution: copies every payload file of the subtree to new IDs, remaps section EIDs and Inline StructuredText entities, keeps the .oem index formatting and CRLF section endings. Refuses if the Solution is open in Sysmac Studio. Requires explicit confirmation.", InputSchema: objectSchema(map[string]any{"project_path": stringProperty("Native Sysmac Solution directory"), "source_id": stringProperty("Entity ID of the program to copy"), "new_name": stringProperty("Name of the new program"), "insert_after_id": stringProperty("Optional sibling entity ID to insert after (default: after the source)"), "exclude_sections": stringProperty("Optional comma-separated section names not to copy"), "confirm_direct_write": map[string]any{"type": "boolean", "description": "Must be true to mutate project files"}, "protected_root": stringProperty("Optional root that must not be written")}, "project_path", "source_id", "new_name", "confirm_direct_write")},
+		{Name: "sysmac_pou_import", Description: "Import a FunctionBlock, Function or Program (with all child entities and payload files) from another native Solution, e.g. a library project, into a group of the target Solution. New IDs, remapped references, target .oem formatting preserved. Refuses if the target is open in Sysmac Studio or already has a POU with that name. Requires explicit confirmation.", InputSchema: objectSchema(map[string]any{"source_project_path": stringProperty("Native Solution directory to copy from (read only)"), "source_id": stringProperty("Entity ID of the POU in the source"), "target_project_path": stringProperty("Native Solution directory to copy into"), "target_parent_id": stringProperty("Entity ID of the target group (e.g. the function block group)"), "confirm_direct_write": map[string]any{"type": "boolean", "description": "Must be true to mutate project files"}, "protected_root": stringProperty("Optional root that must not be written")}, "source_project_path", "source_id", "target_project_path", "target_parent_id", "confirm_direct_write")},
 		{Name: "sysmac_entity_payload_read", Description: "Read the native XML payload for any indexed entity.", InputSchema: objectSchema(map[string]any{"project_path": stringProperty("Sysmac Solution directory"), "entity_id": stringProperty("Entity ID")}, "project_path", "entity_id")},
 		{Name: "sysmac_entity_payload_write", Description: "Write the native XML payload for any indexed entity. Requires explicit confirmation.", InputSchema: objectSchema(map[string]any{"project_path": stringProperty("Sysmac Solution directory"), "entity_id": stringProperty("Entity ID"), "payload_xml": stringProperty("Replacement XML payload"), "confirm_direct_write": map[string]any{"type": "boolean", "description": "Must be true to mutate project files"}, "protected_root": stringProperty("Optional root that must not be written")}, "project_path", "entity_id", "payload_xml", "confirm_direct_write")},
 	}
@@ -20,6 +21,7 @@ func sysmacEntityToolHandlers() map[string]sysmacToolHandler {
 		"sysmac_entity_mutate":        handleEntityMutate,
 		"sysmac_entity_payload_read":  handleEntityPayloadRead,
 		"sysmac_program_clone":        handleProgramClone,
+		"sysmac_pou_import":           handlePOUImport,
 		"sysmac_entity_payload_write": handleEntityPayloadWrite,
 	}
 }
@@ -165,6 +167,37 @@ func handleProgramClone(call sysmacToolCall) (map[string]any, error) {
 		}
 	}
 	result, err := sysmac.CloneProgram(sysmac.ProgramCloneRequest{ProjectPath: path, SourceID: sourceID, NewName: newName, InsertAfterID: insertAfter, ExcludeSections: exclude, ProtectedRoot: protectedRoot})
+	if err != nil {
+		return nil, err
+	}
+	return toolSuccess(map[string]any{"status": "applied", "result": result, "changed_files": append([]string{result.OEMPath, result.OEMBackupPath}, result.CreatedFiles...)}), nil
+}
+
+func handlePOUImport(call sysmacToolCall) (map[string]any, error) {
+	sourcePath, err := call.string("source_project_path", true)
+	if err != nil {
+		return nil, err
+	}
+	sourceID, err := call.string("source_id", true)
+	if err != nil {
+		return nil, err
+	}
+	targetPath, err := call.string("target_project_path", true)
+	if err != nil {
+		return nil, err
+	}
+	parentID, err := call.string("target_parent_id", true)
+	if err != nil {
+		return nil, err
+	}
+	if err := call.confirmed("confirm_direct_write", "confirm_direct_write must be true for direct project mutation"); err != nil {
+		return nil, err
+	}
+	protectedRoot, err := call.string("protected_root", false)
+	if err != nil {
+		return nil, err
+	}
+	result, err := sysmac.ImportPOU(sysmac.POUImportRequest{SourceProjectPath: sourcePath, SourceID: sourceID, TargetProjectPath: targetPath, TargetParentID: parentID, ProtectedRoot: protectedRoot})
 	if err != nil {
 		return nil, err
 	}
