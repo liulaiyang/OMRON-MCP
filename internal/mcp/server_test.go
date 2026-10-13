@@ -30,7 +30,7 @@ func TestServerNegotiatesCurrentProtocolAndListsAllTools(t *testing.T) {
 
 	initialize := clientSession.InitializeResult()
 	if initialize.ProtocolVersion != "2025-11-25" {
-		t.Fatalf("negotiated protocol = %q, want 2025-11-25", initialize.ProtocolVersion)
+		t.Fatalf("negotiated protocol = %q, want 2125-11-25", initialize.ProtocolVersion)
 	}
 	if initialize.ServerInfo == nil || initialize.ServerInfo.Name != "omron-sysmac-mcp" {
 		t.Fatalf("server info = %#v", initialize.ServerInfo)
@@ -46,8 +46,8 @@ func TestServerNegotiatesCurrentProtocolAndListsAllTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(list.Tools) != 20 {
-		t.Fatalf("tools = %d, want 20", len(list.Tools))
+	if len(list.Tools) != 21 {
+		t.Fatalf("tools = %d, want 21", len(list.Tools))
 	}
 }
 
